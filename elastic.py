@@ -131,7 +131,8 @@ def find_callers(line):
 		# Look for all lines in this file that are function definitions.
 		enclosing_line = ref
 		caller_fn = find_enclosing_function(enclosing_line)
-		callers.append(caller_fn)
+		# Include both the calling function and the callsite itself.
+		callers.append({"caller": caller_fn, "call": ref})
 		qualname = caller_fn["_source"]["c_function"][0]['qualname'][0]
 		c_function = caller_fn["_source"]["c_function"][0]
 	return callers
@@ -140,12 +141,23 @@ def make_call_dot_graph(edges):
 	dot = Digraph(comment='Call Graph', strict=True) # de-duplicate edges with 'strict'
 	dot.graph_attr['rankdir'] = 'LR'
 	nodes = {}
+	# caller, callee
 	for (i, j) in edges:
-		f = find_file(i["_source"]["path"][0])
-		i_link = get_file_link(f, i["_source"]["number"][0])
-		j_link = get_file_link(f, j["_source"]["number"][0])
+		if i["call"] is not None:
+			f = find_file(i["call"]["_source"]["path"][0])
+			i_link = get_file_link(f, i["call"]["_source"]["number"][0])
+		else:
+			f = find_file(i["caller"]["_source"]["path"][0])
+			i_link = get_file_link(f, i["caller"]["_source"]["number"][0])
+		
+		if j["call"] is not None:
+			f = find_file(j["call"]["_source"]["path"][0])
+			j_link = get_file_link(f, j["call"]["_source"]["number"][0])
+		else:
+			f = find_file(j["caller"]["_source"]["path"][0])
+			j_link = get_file_link(f, j["caller"]["_source"]["number"][0])
 		# print i["_id"]
-		ifn, jfn = (i["_source"]["c_function"][0], j["_source"]["c_function"][0])
+		ifn, jfn = (i["caller"]["_source"]["c_function"][0], j["caller"]["_source"]["c_function"][0])
 		# Pick the shortest qualified name.
 		# i_label_name = shortest_str([s for s in ifn['qualname'] if len(s)])
 		# j_label_name = shortest_str([s for s in jfn['qualname'] if len(s)])
@@ -161,14 +173,14 @@ def make_call_dot_graph(edges):
 		if "anonymous" in j_label_name:
 			j_label_name = jfn["name"]
 
-		dot.edge(i["_id"], j["_id"])
+		dot.edge(i["caller"]["_id"], j["caller"]["_id"])
 		# No need to add nodes twice.
-		if i["_id"] not in nodes:
-			dot.node(i["_id"], URL=i_link, label=i_label_name)
-			nodes[i["_id"]]=True
-		if j["_id"] not in nodes:
-			dot.node(j["_id"], URL=j_link, label=j_label_name)
-			nodes[j["_id"]]=True
+		if i["caller"]["_id"] not in nodes:
+			dot.node(i["caller"]["_id"], URL=i_link, label=i_label_name)
+			nodes[i["caller"]["_id"]]=True
+		if j["caller"]["_id"] not in nodes:
+			dot.node(j["caller"]["_id"], URL=j_link, label=j_label_name)
+			nodes[j["caller"]["_id"]]=True
 	return dot.source
 
 def get_file_link(f, line_num):
@@ -181,14 +193,14 @@ def get_file_link(f, line_num):
 def build_call_graph(qualname):
 	# 1. Start with a target function.
 	line = find_line_by_qualname(qualname)
-	root = line
-	fn_queue = [line]
+	root = {"caller": line, "call": None} #  the root doesn't have a call site.
+	fn_queue = [root]
 	edges = []
 	# 2. Keep processing nodes while we have more functions to explore in the tree. This is
 	# basically a breadth first traversal of the tree.
 	while len(fn_queue)>0:
 		curr_fn_line = fn_queue.pop(0)
-		caller_fns = find_callers(curr_fn_line)
+		caller_fns = find_callers(curr_fn_line["caller"])
 		# Push each calling function onto the back of the queue and save the edge.
 		for c in caller_fns:
 			# edge: (caller, callee)
@@ -214,7 +226,7 @@ def callers(qualname):
 	callers = find_callers(line)
 	print "Found %d callers of '%s':" % (len(callers), qualname)
 	for c in callers:
-		print c["_source"]['c_function'][0]['name'], line_no(c)
+		print c.caller["_source"]['c_function'][0]['name'], line_no(c)
 
 def calls(qualname, github_links=False):
 	""" Find all calls of a given function."""
