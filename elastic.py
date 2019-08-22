@@ -246,13 +246,13 @@ def print_tree(edges, node, depth=0, max_depth=10):
 	if depth >= max_depth:
 		return
 	# Print the current node.
-	non_empty_qualnames = [s for s in node["_source"]["c_function"][0]["qualname"] if len(s)>0]
+	non_empty_qualnames = [s for s in node["caller"]["_source"]["c_function"][0]["qualname"] if len(s)>0]
 	root_qualname = shortest_str(non_empty_qualnames)
 	if root_qualname=="":
-		print node["_source"]["c_function"][0]["qualname"]
+		print node["caller"]["_source"]["c_function"][0]["qualname"]
 	assert len(root_qualname)>0
-	print ("  " * (depth+1)) + root_qualname
-	caller_edges = filter(lambda (i,j) : root_qualname in j["_source"]["c_function"][0]["qualname"], edges)
+	print ("||" * (depth) + "> ") + root_qualname
+	caller_edges = filter(lambda (i,j) : root_qualname in j["caller"]["_source"]["c_function"][0]["qualname"], edges)
 	for (caller, callee) in caller_edges:
 		print_tree(edges, caller, depth=(depth+1))
 		# print shortest_str(caller["_source"]["c_function"][0]["qualname"])
