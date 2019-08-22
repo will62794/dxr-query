@@ -3,6 +3,7 @@ import pprint
 from graphviz import Digraph
 from elasticsearch import Elasticsearch
 import argparse
+import hashlib
 
 #
 # Query an Elasticsearch database instance that houses the clang static analysis info
@@ -30,6 +31,10 @@ indices = [x for x in es.indices.get('*') if "mongodb_v" not in x and "mongodb_"
 # this changes every day i think so we should probably dynamically retrieve it.
 # mongo_master_index = 'dxr_19_mongodb_66eff114-bda0-11e9-94a3-0cc47ad955d7'
 mongo_master_index = indices[0]
+
+def shortest_str(lst):
+	""" Return the shortest string in a given list. """
+	return min(lst, key=lambda s : len(s))
 
 def trace(msg):
 	if TRACE:
@@ -134,13 +139,36 @@ def find_callers(line):
 def make_call_dot_graph(edges):
 	dot = Digraph(comment='Call Graph', strict=True) # de-duplicate edges with 'strict'
 	dot.graph_attr['rankdir'] = 'LR'
+	nodes = {}
 	for (i, j) in edges:
 		f = find_file(i["_source"]["path"][0])
-		link = get_file_link(f, i["_source"]["number"][0])
+		i_link = get_file_link(f, i["_source"]["number"][0])
+		j_link = get_file_link(f, j["_source"]["number"][0])
+		# print i["_id"]
+		ifn, jfn = (i["_source"]["c_function"][0], j["_source"]["c_function"][0])
+		# Pick the shortest qualified name.
+		# i_label_name = shortest_str([s for s in ifn['qualname'] if len(s)])
+		# j_label_name = shortest_str([s for s in jfn['qualname'] if len(s)])
 
-		# dot.node(edge)
-		dot.edge(i["_source"]["c_function"][0]['name'], j["_source"]["c_function"][0]['name'])
-		dot.node(i["_source"]["c_function"][0]['name'], URL=link)
+		# Maybe use qualified names? Maybe short names are good enough.
+		i_label_name = ifn['name']
+		j_label_name = jfn['name']
+
+		# If the qualified name is in an anonymous namespace, just use the short name, since the
+		# static function version is way too verbose.
+		if "anonymous" in i_label_name:
+			i_label_name = ifn["name"]
+		if "anonymous" in j_label_name:
+			j_label_name = jfn["name"]
+
+		dot.edge(i["_id"], j["_id"])
+		# No need to add nodes twice.
+		if i["_id"] not in nodes:
+			dot.node(i["_id"], URL=i_link, label=i_label_name)
+			nodes[i["_id"]]=True
+		if j["_id"] not in nodes:
+			dot.node(j["_id"], URL=j_link, label=j_label_name)
+			nodes[j["_id"]]=True
 	return dot.source
 
 def get_file_link(f, line_num):
@@ -153,6 +181,7 @@ def get_file_link(f, line_num):
 def build_call_graph(qualname):
 	# 1. Start with a target function.
 	line = find_line_by_qualname(qualname)
+	root = line
 	fn_queue = [line]
 	edges = []
 	# 2. Keep processing nodes while we have more functions to explore in the tree. This is
@@ -166,7 +195,7 @@ def build_call_graph(qualname):
 			edge = (c, curr_fn_line)
 			edges.append(edge)
 			fn_queue.append(c)
-	return edges
+	return edges, root
 
 ########################################
 #
@@ -200,8 +229,28 @@ def calls(qualname, github_links=False):
 			link = get_file_link(file, line_num)
 			print link
 
+def print_tree(edges, node, depth=0, max_depth=10):
+	""" Print a call tree rooted at 'node'."""
+	if depth >= max_depth:
+		return
+	# Print the current node.
+	non_empty_qualnames = [s for s in node["_source"]["c_function"][0]["qualname"] if len(s)>0]
+	root_qualname = shortest_str(non_empty_qualnames)
+	if root_qualname=="":
+		print node["_source"]["c_function"][0]["qualname"]
+	assert len(root_qualname)>0
+	print ("  " * (depth+1)) + root_qualname
+	caller_edges = filter(lambda (i,j) : root_qualname in j["_source"]["c_function"][0]["qualname"], edges)
+	for (caller, callee) in caller_edges:
+		print_tree(edges, caller, depth=(depth+1))
+		# print shortest_str(caller["_source"]["c_function"][0]["qualname"])
+
 def calltree(qualname, depth):
-	edges = build_call_graph(qualname)
+	edges, root = build_call_graph(qualname)
+	print_tree(edges, root)
+
+def dot_calltree(qualname, depth):
+	edges, root = build_call_graph(qualname)
 	print make_call_dot_graph(edges)
 
 def cmdline_args():
@@ -212,6 +261,7 @@ def cmdline_args():
 	p.add_argument("--callers", type=str, help="find all callers of function")
 	p.add_argument("--calls", type=str, help="find all calls to a function")
 	p.add_argument("--calltree", type=str, help="show calltree starting from a function")
+	p.add_argument("--dotcalltree", type=str, help="show DOT call graph starting from a function")
 
 	return(p.parse_args())
 
@@ -230,4 +280,6 @@ if __name__ == '__main__':
 	if args["calltree"]:
 		calltree(args["calltree"], 4)
 
+	if args["dotcalltree"]:
+		dot_calltree(args["dotcalltree"], 4)
 
