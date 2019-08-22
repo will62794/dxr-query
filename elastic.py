@@ -226,7 +226,7 @@ def callers(qualname):
 	callers = find_callers(line)
 	print "Found %d callers of '%s':" % (len(callers), qualname)
 	for c in callers:
-		print c.caller["_source"]['c_function'][0]['name'], line_no(c)
+		print c["caller"]["_source"]['c_function'][0]['name'],",",line_no(c["caller"])
 
 def calls(qualname, github_links=False):
 	""" Find all calls of a given function."""
