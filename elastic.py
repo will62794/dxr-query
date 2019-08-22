@@ -60,6 +60,12 @@ def find_line_by_qualname(qualname):
 	hits = res["hits"]["hits"]
 	return hits[0]	
 
+def find_line(path, number):
+	doc = multi_match_query([{"path": path}, {"number": number}])
+	res = es.search(index=mongo_master_index, body=doc,scroll='1m')
+	hits = res["hits"]["hits"]
+	return hits[0]
+
 def find_refs(qualname):
 	""" Look up all references to a given function, given its qualified name. """
 	doc = {
@@ -190,9 +196,8 @@ def get_file_link(f, line_num):
 	revlink = filter(lambda l : l["title"]=="Normal", vcs_links)[0]
 	return revlink["href"].replace("{{line}}", str(line_num))
 
-def build_call_graph(qualname):
+def build_call_graph(line):
 	# 1. Start with a target function.
-	line = find_line_by_qualname(qualname)
 	root = {"caller": line, "call": None} #  the root doesn't have a call site.
 	fn_queue = [root]
 	edges = []
@@ -262,8 +267,17 @@ def calltree(qualname, depth):
 	print_tree(edges, root)
 
 def dot_calltree(qualname, depth):
-	edges, root = build_call_graph(qualname)
+	line = find_line_by_qualname(qualname)
+	edges, root = build_call_graph(line)
 	print make_call_dot_graph(edges)
+
+def dot_calltree_line(path_with_line_num):
+	args = path_with_line_num.split(":")
+	path, number = args[0], args[1]
+	line = find_line(path, number)
+	edges, root = build_call_graph(line)
+	print make_call_dot_graph(edges)	
+
 
 def cmdline_args():
 	# Make parser object
@@ -274,6 +288,7 @@ def cmdline_args():
 	p.add_argument("--calls", type=str, help="find all calls to a function")
 	p.add_argument("--calltree", type=str, help="show calltree starting from a function")
 	p.add_argument("--dotcalltree", type=str, help="show DOT call graph starting from a function")
+	p.add_argument("--dotcalltreeline", type=str, help="show DOT call graph starting from a given line")
 
 	return(p.parse_args())
 
@@ -295,3 +310,5 @@ if __name__ == '__main__':
 	if args["dotcalltree"]:
 		dot_calltree(args["dotcalltree"], 4)
 
+	if args["dotcalltreeline"]:
+		dot_calltree_line(args["dotcalltreeline"])
