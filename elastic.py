@@ -2,6 +2,7 @@
 import pprint
 from graphviz import Digraph
 from elasticsearch import Elasticsearch
+import elasticsearch
 import argparse
 import hashlib
 
@@ -165,12 +166,18 @@ def make_call_dot_graph(edges):
 		# print i["_id"]
 		ifn, jfn = (i["caller"]["_source"]["c_function"][0], j["caller"]["_source"]["c_function"][0])
 		# Pick the shortest qualified name.
-		# i_label_name = shortest_str([s for s in ifn['qualname'] if len(s)])
-		# j_label_name = shortest_str([s for s in jfn['qualname'] if len(s)])
+		i_qual_name = shortest_str([s for s in ifn['qualname'] if len(s)])
+		j_qual_name = shortest_str([s for s in jfn['qualname'] if len(s)])
+
+		i_namespace = "::".join(i_qual_name.split("::")[:-1])
+		j_namespace = "::".join(j_qual_name.split("::")[:-1])
 
 		# Maybe use qualified names? Maybe short names are good enough.
-		i_label_name = ifn['name']
-		j_label_name = jfn['name']
+		# i_label_name = i_namespace + "\n" + ifn['name']
+		# j_label_name = j_namespace + "\n" + jfn['name']
+
+		i_label_name = i_qual_name
+		j_label_name = j_qual_name
 
 		# If the qualified name is in an anonymous namespace, just use the short name, since the
 		# static function version is way too verbose.
@@ -182,10 +189,10 @@ def make_call_dot_graph(edges):
 		dot.edge(i["caller"]["_id"], j["caller"]["_id"])
 		# No need to add nodes twice.
 		if i["caller"]["_id"] not in nodes:
-			dot.node(i["caller"]["_id"], URL=i_link, label=i_label_name)
+			dot.node(i["caller"]["_id"], URL=i_link, label=i_label_name, shape="box")
 			nodes[i["caller"]["_id"]]=True
 		if j["caller"]["_id"] not in nodes:
-			dot.node(j["caller"]["_id"], URL=j_link, label=j_label_name)
+			dot.node(j["caller"]["_id"], URL=j_link, label=j_label_name, shape="box")
 			nodes[j["caller"]["_id"]]=True
 	return dot.source
 
@@ -267,9 +274,13 @@ def calltree(qualname, depth):
 	print_tree(edges, root)
 
 def dot_calltree(qualname, depth):
-	line = find_line_by_qualname(qualname)
-	edges, root = build_call_graph(line)
-	print make_call_dot_graph(edges)
+	qualnames = qualname.split(",")
+	all_edges = []
+	for qualname in qualnames:
+		line = find_line_by_qualname(qualname)
+		edges, root = build_call_graph(line)
+		all_edges += edges
+	print make_call_dot_graph(all_edges)
 
 def dot_calltree_line(path_with_line_num):
 	args = path_with_line_num.split(":")
@@ -308,7 +319,7 @@ if __name__ == '__main__':
 		calltree(args["calltree"], 4)
 
 	if args["dotcalltree"]:
-		dot_calltree(args["dotcalltree"], 4)
+		dot_calltree(args["dotcalltree"], 4)		
 
 	if args["dotcalltreeline"]:
 		dot_calltree_line(args["dotcalltreeline"])
